@@ -9,6 +9,10 @@ To check if a record is a duplicate we use a unique identifier which consists of
 2.1 [warcio recompress](https://github.com/webrecorder/warcio/blob/master/warcio/recompressor.py)<br />
 2.2 Check if Digest + Timestamp + URL exists in the Berkeley DB. If not, we will generate new WARCs with these records.
 
+### Additional Requirements
+
+Install Berkeley DB.
+
 ### Setup
 
 ```
