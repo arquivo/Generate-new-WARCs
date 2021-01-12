@@ -8,6 +8,7 @@ import click
 import argparse
 import datetime
 from bsddb3 import db
+import time
 
 exit_value = 0
 
@@ -102,7 +103,7 @@ def processWarcio(mypath, destination_removed_warcs):
                     os.system("mv " + file_name + " " + destination_removed_warcs)
 
 
-def processArcToWarc(IMdb, mypath, destination, filename_template,sizeFile):
+def processArcToWarc(IMdb_Records, IMdb_WARCs, mypath, destination, filename_template,sizeFile):
 
     #import pdb;pdb.set_trace()
 
@@ -124,31 +125,34 @@ def processArcToWarc(IMdb, mypath, destination, filename_template,sizeFile):
                     progress_bar.update(1)
                     file_name = os.path.join(subdir, file)
                     
-                    ##Recompress arc to warc.gz
-                    os.system("warcio recompress " + file_name + " " + subdir + "warc/" + file.replace(".arc.gz", ".warc.gz"))
+                    #Check if name of the WARC is on berkeley db IMdb_WARCs
+                    if not IMdb_WARCs.has_key(file_name.encode('utf_8')):
+                        ##Recompress arc to warc.gz
+                        os.system("warcio recompress " + file_name + " " + subdir + "warc/" + file.replace(".arc.gz", ".warc.gz"))
 
-                    with open(subdir + "warc/" + file.replace(".arc.gz", ".warc.gz"), 'rb') as stream:
-                        for record in ArchiveIterator(stream):
-                            if record.rec_type != 'warcinfo':
-                                try:
-                                    #Build a unique indentifier
-                                    string_compare = (record.rec_headers.get_header('WARC-Payload-Digest') or
-                                                  record.rec_headers.get_header('WARC-Block-Digest'))
-                                    string_compare += record.rec_headers.get_header('WARC-Date')
-                                    string_compare += record.rec_headers.get_header('WARC-Target-URI')
-                                    
-                                    #Check if it is on berkeley db
-                                    if not IMdb.has_key(string_compare.encode('utf_8')):
-                                        if os.path.getsize(filename) > sizeFile:
-                                            output.close()
-                                            filename = namePatchingMergedFile(filename_template, destination)
-                                            output = open(filename, 'wb')
-                                            writer = WARCWriter(output, gzip=True)
+                        with open(subdir + "warc/" + file.replace(".arc.gz", ".warc.gz"), 'rb') as stream:
+                            for record in ArchiveIterator(stream):
+                                if record.rec_type != 'warcinfo':
+                                    try:
+                                        #Build a unique indentifier
+                                        string_compare = (record.rec_headers.get_header('WARC-Payload-Digest') or
+                                                      record.rec_headers.get_header('WARC-Block-Digest'))
+                                        string_compare += record.rec_headers.get_header('WARC-Date')
+                                        string_compare += record.rec_headers.get_header('WARC-Target-URI')
+                                        
+                                        #Check if record is on berkeley db IMdb_Records
+                                        if not IMdb_Records.has_key(string_compare.encode('utf_8')):
+                                            if os.path.getsize(filename) > sizeFile:
+                                                output.close()
+                                                filename = namePatchingMergedFile(filename_template, destination)
+                                                output = open(filename, 'wb')
+                                                writer = WARCWriter(output, gzip=True)
 
-                                        IMdb.put(string_compare.encode('utf_8'), None)
-                                        writer.write_record(record)
-                                except:
-                                    continue
+                                            IMdb_Records.put(string_compare.encode('utf_8'), None)
+                                            writer.write_record(record)
+                                    except:
+                                        continue
+                        IMdb_WARCs.put(file_name.encode('utf_8'), None)
                     #remove WARC from "warcio recompress" to save space (disk)
                     os.system("rm -rf " + subdir + "warc/" + file.replace(".arc.gz", ".warc.gz"))
                 break
@@ -169,10 +173,16 @@ if __name__ == '__main__':
     processWarcio(mypath, destination_removed_warcs)
     
     click.secho("Start berkeley db...", fg='green')
-    ##Init berkeley db
-    IMdb = db.DB()
-    IMdb.open("IM", None, db.DB_BTREE, db.DB_CREATE)
-
-    processArcToWarc(IMdb, mypath, destination, filename_template,sizeFile)
     
-    IMdb.close()
+    ##Init berkeley db with the records
+    IMdb_Records = db.DB()
+    IMdb_Records.open("IM_RECORDS", None, db.DB_BTREE, db.DB_CREATE)
+
+    ##Init berkeley db with the name of the WARCs processed
+    IMdb_WARCs = db.DB()
+    IMdb_WARCs.open("IM_WARCS_NAME", None, db.DB_BTREE, db.DB_CREATE)
+
+    processArcToWarc(IMdb_Records, IMdb_WARCs, mypath, destination, filename_template,sizeFile)
+    
+    IMdb_Records.close()
+    IMdb_WARCs.close()
